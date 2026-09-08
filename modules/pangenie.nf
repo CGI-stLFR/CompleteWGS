@@ -19,7 +19,7 @@ process pangenie {
     def python = "/usr/local/app/miniconda3/bin/python"
     def py = "/usr/local/app/pangenie/pipelines/run-from-callset/scripts/convert-to-biallelic.py"
     """
-    cat ${r[1]} ${r[2]} | gunzip > merge.fq
+    cat ${r.join(' ')} | gunzip > merge.fq
     PanGenie -f ${params.DB}/pangenie/HPRC_index -i merge.fq -o pangenie -j ${task.cpus} -t ${task.cpus}
 
     cat pangenie_genotyping.vcf | $python $py ${params.DB}/pangenie/cactus_filtered_ids_biallelic.vcf.gz |bgzip > pangenie_genotyping_biallelic.vcf.gz

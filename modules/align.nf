@@ -81,25 +81,36 @@ workflow WF_align_pf {
     //     return [meta.id, path]
     // }.set {ch_pffq}
 
-    qc_pf('pf', ch_pffq).reads.set {ch_qcpffq} 
+    ch_pffq.branch { id, reads ->
+        pe    : reads.size() == 2
+        se600 : reads.size() == 1
+    }.set { ch_pf_fq }
+
+    // SOAPnuke QC and FASTQ downsampling are paired-end only.  A single-end
+    // PCR-free SE600 library goes directly to vg giraffe below.
+    qc_pf('pf', ch_pf_fq.pe).reads.set {ch_pf_qc}
+    ch_pf_fq.se600.set {ch_pf_se600fq}
 
     if (params.sampleFq) { 
         qc_pf.out.bssq.set {ch_pfbssq}
         readLenPf(ch_pfbssq).set {ch_PFreadLen} 
         basecountPf(ch_pfbssq).set {ch_pfbasecount}
-        samplePfFq(ch_pfbasecount.join(ch_PFreadLen).join(ch_qcpffq)).set {ch_pffq}
+        samplePfFq(ch_pfbasecount.join(ch_PFreadLen).join(ch_pf_qc)).set {ch_pf_sampled}
+        ch_pf_sampled.mix(ch_pf_se600fq).set {ch_pf_alignfq}
+    } else {
+        ch_pf_qc.mix(ch_pf_se600fq).set {ch_pf_alignfq}
     }
 
     if (params.pfAligner == 'bwa') {
         if (params.use_megabolt) {
-            bwaMegaboltPf('pf', ch_pffq).set {ch_pfbam}
+            bwaMegaboltPf('pf', ch_pf_alignfq).set {ch_pfbam}
         } else {
-            bwa('pf', ch_pffq).set {ch_pfsortbam}
+            bwa('pf', ch_pf_alignfq).set {ch_pfsortbam}
             markdup('pf', 'bwa', ch_pfsortbam).set {ch_pfbam} 
         } 
     } else if (params.pfAligner == 'vg') {
         if (params.ref != 'hg38' && !params.ref.contains('GRCh38')) { exit 1, 'graph aligner only support hg38 ref!'}
-        ch_pffq.map { id, reads -> [id, reads, true] }.set {ch_pffq_typed}
+        ch_pf_alignfq.map { id, reads -> [id, reads, reads.size() == 2] }.set {ch_pffq_typed}
         kff(ch_pffq_typed.map { id, reads, is_pe -> [id, reads] }).set {ch_kff}
         vg(ch_kff.join(ch_pffq_typed)).set {ch_pfbam}
         markdup('pf', 'vg', ch_pfbam).set {ch_pfbam}

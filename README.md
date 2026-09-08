@@ -245,8 +245,8 @@ Remove the `complete_wgs_` prefix from .sif filenames and place them in `${sif_d
 5. Test with demo data:
 ```bash
 cat << EOF > samplesheet.csv
-sample,stlfr1,stlfr2,pcrfree1,pcrfree2,stlfrbam,pfbam
-demo,demo/stLFR_demo_1M_1.fq.gz,demo/stLFR_demo_1M_2.fq.gz,demo/PF_demo_1M_1.fq.gz,demo/PF_demo_1M_2.fq.gz,,
+sample,stlfr1,stlfr2,stlfr21,pcrfree1,pcrfree2,stlfrbam,pfbam
+demo,demo/stLFR_demo_1M_1.fq.gz,demo/stLFR_demo_1M_2.fq.gz,,demo/PF_demo_1M_1.fq.gz,demo/PF_demo_1M_2.fq.gz,,
 EOF
 
 nextflow run modules/main.nf -entry CWGS \
@@ -270,8 +270,8 @@ sample,stlfr1,stlfr2,pcrfree1,pcrfree2,stlfrbam,pfbam
 | `stlfr1` | cWGS/stLFR **PE150** R1 FASTQ (gzipped) |
 | `stlfr2` | cWGS/stLFR **PE150** R2 FASTQ (gzipped) |
 | `stlfr21` | cWGS/stLFR **SE600** FASTQ (gzipped, single-end) |
-| `pcrfree1` | PCR-free R1 FASTQ (gzipped) |
-| `pcrfree2` | PCR-free R2 FASTQ (gzipped) |
+| `pcrfree1` | PCR-free R1 FASTQ, or single-end PCR-free SE600 FASTQ (gzipped) |
+| `pcrfree2` | PCR-free R2 FASTQ; leave empty for PCR-free SE600 |
 | `stlfrbam` | Pre-aligned cWGS BAM (for `--frombam` mode) |
 | `pfbam` | Pre-aligned PCR-free BAM (for `--frombam` mode) |
 
@@ -281,6 +281,7 @@ sample,stlfr1,stlfr2,pcrfree1,pcrfree2,stlfrbam,pfbam
 |---------|-----------|---------|---------|
 | stLFR PE150 | Paired-end 150 bp | `stlfr1` + `stlfr2` | Lariat |
 | SE600 (stLFR2) | Single-end 600 bp | `stlfr21` only | vg giraffe |
+| PCR-free SE600 | Single-end 600 bp | `pcrfree1` only | vg giraffe |
 
 **Start from FASTQ — PE150 (default):**
 ```csv
@@ -289,11 +290,13 @@ demo1,/path/cWGS_01_1.fq.gz,/path/cWGS_01_2.fq.gz,/path/PF_01_1.fq.gz,/path/PF_0
 demo2,/path/cWGS_02_1.fq.gz,/path/cWGS_02_2.fq.gz,/path/PF_02_1.fq.gz,/path/PF_02_2.fq.gz,,
 ```
 
-**Start from FASTQ — SE600** (single-end; use `stlfr21` column only, no `stlfr22`):
+**Start from FASTQ — SE600** (single-end; use `stlfr21` and/or `pcrfree1`, with no R2 column):
 ```csv
-sample,stlfr21,pcrfree1,pcrfree2,stlfrbam,pfbam
-demo1,/path/SE600_01.fq.gz,/path/PF_01_1.fq.gz,/path/PF_01_2.fq.gz,,
+sample,stlfr21,pcrfree1,stlfrbam,pfbam
+demo1,/path/stLFR_SE600.fq.gz,/path/PCRfree_SE600.fq.gz,,
 ```
+
+PCR-free SE600 bypasses the paired-end SOAPnuke QC and FASTQ downsampling steps; run it with `--pfAligner vg` (the default).
 
 **Start from BAM** (`--frombam true`). FASTQ columns (`pcrfree1`/`pcrfree2`) are used for PanGenie SV genotyping if provided:
 ```csv
@@ -468,4 +471,4 @@ MegaBOLT: ~14 hr | non-MegaBOLT: ~45 hr
 7. [vg giraffe](https://github.com/vgteam/vg) — Pangenome graph aligner  
 8. [PanGenie](https://github.com/eblerjana/pangenie) — Pangenome-based SV genotyping  
 9. [whatshap](https://github.com/whatshap/whatshap) — Read-based phasing  
-10. [MEGAHIT](https://github.com/voutcn/megahit) — Ultra-fast de novo assembler  
+10. [MEGAHIT](https://github.com/voutcn/megahit) — Ultra-fast de novo assembler
