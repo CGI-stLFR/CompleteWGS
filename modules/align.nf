@@ -439,14 +439,39 @@ process vg {
     def fai  = params.ref.startsWith('/') ? "${params.ref}.fai" : "${params.DB}/hg38/reference/hg38.fa.fai"
     def vg_bin = "/usr/local/app/vg/bin/vg"
     def fq_args = is_pe ? "-f ${reads[0]} -f ${reads[1]}" : "-f ${reads[0]}"
+    def vg_lock = params.vg_lock_dir
+    def vg_lock_parent = vg_lock.substring(0, vg_lock.lastIndexOf('/'))
+    def stale_sec = 8 * 3600  // longer than any real vg giraffe run should take
     """
     awk '{print \$1}' $fai | sed 's/^/GRCh38#0#/' > list
+
+    # machine-wide mutex: mkdir is atomic even on network filesystems, so this
+    # holds even across the two independent vg call-sites (WF_align_pf,
+    # WF_align_stlfr2) and across separate nextflow runs -- maxForks 1 alone
+    # does not cover that (see comment on vg_lock_dir in nextflow.config).
+    mkdir -p $vg_lock_parent
+    while ! mkdir $vg_lock 2>/dev/null; do
+        if [ -d $vg_lock ]; then
+            age=\$(( \$(date +%s) - \$(stat -c %Y $vg_lock 2>/dev/null || echo 0) ))
+            if [ "\$age" -gt "$stale_sec" ]; then
+                echo "[vg] lock older than ${stale_sec}s, assuming stale and clearing: $vg_lock" >&2
+                rmdir $vg_lock 2>/dev/null || true
+                continue
+            fi
+        fi
+        echo "[vg] waiting for machine-wide vg giraffe lock: $vg_lock" >&2
+        sleep 15
+    done
+    trap 'rmdir $vg_lock 2>/dev/null || true' EXIT
 
     $vg_bin giraffe -Z $gbz --progress --index-basename `pwd`/${id} \\
         --read-group "ID:$id LB:lib1 SM:$id PL:CG PU:unit1" --sample $id -o BAM \\
         --ref-paths list -P -L 3000 $fq_args --kff-name $kff --haplotype-name $hapl \\
         --max-multimaps 3 -t ${task.cpus} | \\
     samtools sort -@ ${task.cpus} -T /tmp/sort.${id}.vg. -o ${id}.sort0.bam -
+
+    rmdir $vg_lock 2>/dev/null || true
+    trap - EXIT
 
     samtools view -H ${id}.sort0.bam > header
     sed 's/GRCh38#0#//g' header > new_header.txt
