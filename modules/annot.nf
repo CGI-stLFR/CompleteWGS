@@ -1,7 +1,7 @@
 process vep {
     
-    cpus params.CPU0
-    memory params.MEM1 + "g"
+    cpus 8
+    memory params.vep_memory
     clusterOptions = params.clusterOptions.replace('CPUS', cpus.toString()).replace('MEMORY', memory.toString()).replace('QUEUE', params.queue)
     when: params.ref == 'hg38' || params.ref.contains('GRCh38')
 
@@ -24,7 +24,7 @@ process vep {
     set +u
     source /usr/local/app/miniconda3/bin/activate /usr/local/app/miniconda3/envs/vep
 
-    vep -i $vcf -o ${id}.vep.vcf --cache --offline --dir_cache $db --fasta $ref --species homo_sapiens --assembly GRCh38 --cache_version 113 --vcf --fields Uploaded_variation,Location,Allele,Gene,Feature,Feature_type,Consequence,cDNA_position,CDS_position,Protein_position,Amino_acids,Codons,Existing_variation,IMPACT,SYMBOL,dbNSF,AlphaMissense,UTRAnnotator,BIOTYPE,DISTANCE,FLAGS,VARIANT_CLASS,CLIN_SIG,AF
+    vep -i $vcf -o ${id}.vep.vcf --cache --offline --dir_cache $db --fasta $ref --species homo_sapiens --assembly GRCh38 --cache_version 113 --vcf --fork ${task.cpus} --fields Uploaded_variation,Location,Allele,Gene,Feature,Feature_type,Consequence,cDNA_position,CDS_position,Protein_position,Amino_acids,Codons,Existing_variation,IMPACT,SYMBOL,dbNSF,AlphaMissense,UTRAnnotator,BIOTYPE,DISTANCE,FLAGS,VARIANT_CLASS,CLIN_SIG,AF
 
     bgzip -c ${id}.vep.vcf > ${id}.vep.vcf.gz
     tabix -p vcf ${id}.vep.vcf.gz
