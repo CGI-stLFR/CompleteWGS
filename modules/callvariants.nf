@@ -7,7 +7,10 @@ workflow WF_callvariants {
   
   if (params.var_tool.contains("dv")) {
     if (params.use_megabolt) {dvMegabolt(ch_lariat, ch_bam).set {ch_mergevcf}}
-    else {deepvariant(ch_lariat, ch_bam).set {ch_mergevcf}}
+    else {
+      inferDvSex(ch_bam).set {ch_dv_sex}
+      deepvariant(ch_lariat, ch_bam.join(ch_dv_sex)).set {ch_mergevcf}
+    }
     
   } else if (params.var_tool.contains("gatk")) {
     if (params.use_megabolt) {
@@ -527,7 +530,7 @@ process dvMegabolt {
     
     input:
     val(aligner)
-    tuple val(id), path(bam) //demo.stlfr.lariat.merge.bam
+    tuple val(id), path(bam)
 
     output:
     tuple val(id), path("${id}.${aligner}.dv.vcf.gz*") //demo.lariat.dv.vcf.gz
@@ -549,6 +552,52 @@ process dvMegabolt {
     mv output/output.dv.vcf.gz.tbi ${id}.${aligner}.dv.vcf.gz.tbi
     """
 }
+process inferDvSex {
+    cpus 1
+    memory params.MEM0 + "g"
+
+    input:
+    tuple val(id), path(bam)
+
+    output:
+    tuple val(id), path("${id}.dv_sex.tsv")
+
+    tag "$id"
+    publishDir "${params.outdir}/$id/align/", mode: 'link'
+
+    script:
+    def input_bam = bam.find { it.toString().endsWith('.bam') } ?: bam.first()
+    """
+    case "${params.dv_sex_mode}" in
+      auto)
+        chr_y_length=`${params.BIN}samtools idxstats $input_bam | awk -v contig="${params.dv_sex_chrY_contig}" '\$1 == contig {print \$2; exit}'`
+        if [ -z "\${chr_y_length}" ] || [ "\${chr_y_length}" -eq 0 ]; then
+          echo "Cannot determine sex for $id: ${params.dv_sex_chrY_contig} is absent from $input_bam" >&2
+          exit 2
+        fi
+        chr_y_bases=`${params.BIN}samtools depth $input_bam "${params.dv_sex_chrY_contig}" | awk '{sum += \$3} END {print sum + 0}'`
+        chr_y_mean_depth=`awk -v bases="\${chr_y_bases}" -v length="\${chr_y_length}" 'BEGIN {printf "%.6f", bases / length}'`
+        if awk -v depth="\${chr_y_mean_depth}" -v threshold="${params.dv_female_max_chrY_mean_depth}" 'BEGIN {exit !(depth < threshold)}'; then
+          sex=female
+        else
+          sex=male
+        fi
+        ;;
+      male|female)
+        sex="${params.dv_sex_mode}"
+        chr_y_mean_depth=NA
+        ;;
+      *)
+        echo "Invalid dv_sex_mode: ${params.dv_sex_mode} (expected auto, male, or female)" >&2
+        exit 2
+        ;;
+    esac
+    printf 'sex\\tchrY_mean_depth\\tthreshold\\tmode\\n%s\\t%s\\t%s\\t%s\\n' "\${sex}" "\${chr_y_mean_depth}" "${params.dv_female_max_chrY_mean_depth}" "${params.dv_sex_mode}" > ${id}.dv_sex.tsv
+    """
+    stub:
+    "printf 'sex\\tchrY_mean_depth\\tthreshold\\tmode\\nfemale\\t0.000000\\t${params.dv_female_max_chrY_mean_depth}\\tstub\\n' > ${id}.dv_sex.tsv"
+}
+
 process deepvariant {
     cpus params.cpu3
     memory params.deepvariant_memory
@@ -558,7 +607,7 @@ process deepvariant {
 
     input:
     val(aligner)
-    tuple val(id), path(bam) //demo.stlfr.lariat.merge.bam
+    tuple val(id), path(bam), path(sex)
 
     output:
     tuple val(id), path("${id}.*.dv.vcf.gz*") //demo.lariat.dv.vcf.gz
@@ -568,24 +617,23 @@ process deepvariant {
     beforeScript "export PATH=/opt/deepvariant/bin:\$PATH"
  
     script:
-    def bam = bam.first()
+    def bam = bam.find { it.toString().endsWith('.bam') } ?: bam.first()
+    def sex_file = sex
     def ref = params.ref.startsWith('/') ? params.ref : "${params.DB}/${params.ref}/reference/${params.ref}.fa"
     def pangenome = params.dv_pangenome ?: "${params.DB}/hg38/panGenome/hprc-v1.1-mc-grch38.gbz"
     def ver = "dv"
     def outvcf = bam.toString().contains("pf") ? "${id}.pf.bwa.${ver}.vcf.gz" : "${id}.${aligner}.${ver}.vcf.gz"
     def gbz_shm = params.dv_gbz_shm_size_gb ? "--gbz_shared_memory_size_gb ${params.dv_gbz_shm_size_gb}" : ""
-    // haploid_contigs: male="chrX chrY", female="" (omit flag entirely)
-    def haploid_args = (params.dv_haploid_contigs && params.dv_haploid_contigs != "") ?
-        "--haploid_contigs=\"${params.dv_haploid_contigs}\"" : ""
+    def male_haploid_args = (params.dv_haploid_contigs && params.dv_haploid_contigs != "") ?
+        "--haploid_contigs='${params.dv_haploid_contigs}'" : ""
     def default_par_bed = pangenome.contains("/") ?
         "${pangenome.substring(0, pangenome.lastIndexOf('/'))}/GRCh38_PAR.bed" : ""
     def par_bed = (params.dv_par_regions_bed && params.dv_par_regions_bed != "") ?
         params.dv_par_regions_bed : default_par_bed
-    def par_args = par_bed ? "--par_regions_bed=\"${par_bed}\"" : ""
-    def haploid_make_args = [haploid_args, par_args].findAll { it }.join(",")
+    def par_args = par_bed ? "--par_regions_bed=${par_bed}" : ""
     def base_make_args = params.dv_make_examples_extra_args ?: ""
-    def make_examples_args = [base_make_args, haploid_make_args].findAll { it }.join(",")
-    def make_examples_flag = make_examples_args ? "--make_examples_extra_args '${make_examples_args}'" : ""
+    def male_make_args = [base_make_args, male_haploid_args, par_args].findAll { it }.join(",")
+    def make_examples_flag = ""
     def postprocess_flag = (params.dv_postprocess_variants_extra_args && params.dv_postprocess_variants_extra_args != "") ?
         "--postprocess_variants_extra_args '${params.dv_postprocess_variants_extra_args}'" : ""
     def customized_model_flag = (params.dv_customized_model && params.dv_customized_model != "") ?
@@ -599,6 +647,24 @@ process deepvariant {
     rm -rf \${dv_tmp}
     mkdir -p \${TEST_TMPDIR} \${HOME} \${dv_tmp}/intermediate
 
+    sex=`awk 'NR == 2 {print \$1; exit}' $sex_file`
+    case "\${sex}" in
+      male)
+        make_examples_args='${male_make_args}'
+        ;;
+      female)
+        make_examples_args='${base_make_args}'
+        ;;
+      *)
+        echo "Invalid sex value in $sex_file: \${sex}" >&2
+        exit 2
+        ;;
+    esac
+    make_examples_flag=()
+    if [ -n "\${make_examples_args}" ]; then
+      make_examples_flag=(--make_examples_extra_args "\${make_examples_args}")
+    fi
+
     ${params.dv_binary_path} \\
       --model_type WGS \\
       --ref $ref \\
@@ -607,7 +673,8 @@ process deepvariant {
       --output_vcf $outvcf \\
       --num_shards ${task.cpus} \\
       --intermediate_results_dir \${dv_tmp}/intermediate \\
-      $optional_args
+      $optional_args \\
+      \${make_examples_flag[@]}
     """
     stub:
     def ver = "dv"

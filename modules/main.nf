@@ -23,10 +23,11 @@ include {
     mergeBam as mergeBamLariat } from "${params.MOD}/mergebam"
 include {
     WF_callvariants;
-    gatk_interval;
-    gatherVcfsHc;
-    gatherVcfsVqsr;
-    deepvariant;
+	gatk_interval;
+	gatherVcfsHc;
+	gatherVcfsVqsr;
+	inferDvSex;
+	deepvariant;
     deepvariant as dvBwaPf;
     dvMegabolt;
     hcMegabolt;
@@ -314,7 +315,10 @@ workflow CWGS_frombam {
 
     if (params.var_tool.contains("dv")) {
         if (params.use_megabolt && params.dv_version == 'v0.6') {dvMegabolt(ch_lariat, ch_mergeLariatBam).set {ch_mergevcf}}
-        else {deepvariant(ch_lariat, ch_mergeLariatBam).set {ch_mergevcf}}
+		else {
+			inferDvSex(ch_mergeLariatBam).set {ch_dv_sex}
+			deepvariant(ch_lariat, ch_mergeLariatBam.join(ch_dv_sex)).set {ch_mergevcf}
+		}
         
         if (params.ref == 'hg38' || params.ref.contains('GRCh38')) {
             vcfevalLariatDv(ch_merge, ch_mergevcf).set {ch_vcfevalLariatDv}//report 52 
@@ -555,7 +559,10 @@ workflow CWGS_frombam_stLFRonly {
 
     if (params.var_tool.contains("dv")) {
         if (params.use_megabolt && params.dv_version == "v0.6" ) {dvMegabolt(ch_lariat, ch_mergeLariatBam).set {ch_mergevcf}}
-        else {deepvariant(ch_lariat, ch_lariatbam).set {ch_vcf}}
+		else {
+			inferDvSex(ch_lariatbam).set {ch_dv_sex}
+			deepvariant(ch_lariat, ch_lariatbam.join(ch_dv_sex)).set {ch_vcf}
+		}
         
 
         //phase
