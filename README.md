@@ -357,8 +357,8 @@ nextflow run modules/main.nf -entry CWGS_frombam \
 
 ### Duplicate marking
 ```
---markdup STRING    Mark-duplicates tool [biobambam2]
-                      biobambam2 | picard | gatk4 | sambamba
+--markdup STRING    Mark-duplicates tool [picard]
+                      picard | biobambam2 | gatk4 | sambamba
 ```
 
 ### BAM downsampling

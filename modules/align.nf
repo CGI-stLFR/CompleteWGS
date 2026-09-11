@@ -839,7 +839,7 @@ process sortbam {
 }
 process markdup {
     cpus params.cpu2
-    memory params.MEM1 + "g"
+    memory params.markdup_memory
     clusterOptions = params.clusterOptions.replace('CPUS', cpus.toString()).replace('MEMORY', memory.toString()).replace('QUEUE', params.queue)
 
     input:
